@@ -267,6 +267,8 @@ async def run(args: argparse.Namespace) -> int:
             log.info("Nur Handshake ausgeführt")
             return 0
 
+        log.info("Sende initialen Keepalive vor dem ersten Testkommando")
+        await ctl.send_raw(client, KEEPALIVE, "KEEPALIVE-INITIAL", wait_reply=0.8)
         await ctl.start_keepalive(client)
         await asyncio.sleep(args.action_delay)
 
