@@ -829,25 +829,25 @@ _RING_SUBEFFECT_NAMES: dict[int, str] = {
 # ── Notification payload parsers ──────────────────────────────────────────────
 
 def _parse_heartbeat(plain: bytes) -> StateUpdate:
-    """Extract per-zone power states from a decrypted 0xAA/0x36 echo.
+    """Parse a decrypted 0xAA/0x36 keepalive echo.
 
-    Based on ``ComposeLightHeartController.parseValidBytes()`` (h604a APK):
-      ``validBytes[0]`` (= ``plain[2]``) → centre panel on/off
-      ``validBytes[1]`` (= ``plain[3]``) → outer ring on/off
+    The H601E sends proactive keepalive notifications every few seconds with
+    ``plain[2]=0, plain[3]=0`` regardless of physical power state.  Unlike the
+    H604a (where those bytes encode ``center_on`` / ``ring_on`` per
+    ``ComposeLightHeartController.parseValidBytes()``), the H601E always zeroes
+    them out, so extracting power state here would reset HA state to "off"
+    every 2–3 seconds.
+
+    Power state is therefore tracked exclusively via optimistic updates (set at
+    command send time) and ``RestoreEntity`` persistence across restarts.
 
     Args:
         plain: 20-byte decrypted heartbeat frame.
 
     Returns:
-        :class:`StateUpdate` with power fields set.
+        Empty :class:`StateUpdate` (no fields set).
     """
-    center_on = len(plain) > 2 and plain[2] != 0
-    ring_on   = len(plain) > 3 and plain[3] != 0
-    return StateUpdate(
-        is_on=center_on or ring_on,
-        center_is_on=center_on,
-        ring_is_on=ring_on,
-    )
+    return StateUpdate()
 
 
 def _parse_0x33_0x01(plain: bytes) -> StateUpdate:

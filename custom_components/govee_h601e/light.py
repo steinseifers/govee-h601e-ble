@@ -36,9 +36,11 @@ from homeassistant.components.light import (
     LightEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CONF_MAC,
@@ -118,10 +120,11 @@ def _device_info(entry: ConfigEntry, name: str) -> DeviceInfo:
 # Base entity
 # ═════════════════════════════════════════════════════════════════════════════
 
-class _GoveeBaseLight(LightEntity):
+class _GoveeBaseLight(LightEntity, RestoreEntity):
     """Shared base class for all three Govee H601E light entities.
 
-    Handles coordinator subscription and availability tracking.
+    Handles coordinator subscription, availability tracking, and HA state
+    restoration across restarts (via :class:`~homeassistant.helpers.restore_state.RestoreEntity`).
     """
 
     _attr_has_entity_name = True
@@ -192,6 +195,26 @@ class GoveeMainLight(_GoveeBaseLight):
         super().__init__(coordinator, entry, name)
         self._attr_unique_id = entry.data[CONF_MAC]
         self._attr_name = None  # Uses the device name directly
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known power state and subscribe to coordinator updates.
+
+        Seeds the coordinator's power state from HA's persisted last state so
+        that ring/centre entities do not send a spurious power-on command on the
+        first action after a restart (which would happen if ``state.is_on``
+        stayed ``False``).
+        """
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_state()) is not None:
+            is_on = last_state.state == STATE_ON
+            self._coordinator.state.is_on = is_on
+            self._coordinator.state.center.is_on = is_on
+            self._coordinator.state.ring.is_on = is_on
+            _LOGGER.debug(
+                "[%s] Restored power state from HA: is_on=%s",
+                self._coordinator.address,
+                is_on,
+            )
 
     @property
     def is_on(self) -> bool:

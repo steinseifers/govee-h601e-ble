@@ -710,33 +710,21 @@ class GoveeCoordinator:
         s = self.state
 
         if from_heartbeat:
-            # Guard: only suppress "off" while a recently-sent command might
-            # still be in-flight.  _last_cmd_sent_at is 0.0 at startup, so
-            # the very first keepalive echo after connect is always authoritative.
-            recent_cmd = (monotonic() - self._last_cmd_sent_at) < 2.0
-
-            if recent_cmd:
-                # Protect optimistic "on" state – allow ON but not OFF.
-                if update.is_on and not s.is_on:
-                    s.is_on = True
-                    changed = True
-                if update.center_is_on and not s.center.is_on:
-                    s.center.is_on = True
-                    changed = True
-                if update.ring_is_on and not s.ring.is_on:
-                    s.ring.is_on = True
-                    changed = True
-            else:
-                # No recent command – heartbeat is authoritative for power state.
-                if update.is_on is not None and s.is_on != update.is_on:
-                    s.is_on = update.is_on
-                    changed = True
-                if update.center_is_on is not None and s.center.is_on != update.center_is_on:
-                    s.center.is_on = update.center_is_on
-                    changed = True
-                if update.ring_is_on is not None and s.ring.is_on != update.ring_is_on:
-                    s.ring.is_on = update.ring_is_on
-                    changed = True
+            # The H601E sends proactive 0xAA/0x36 notifications every few
+            # seconds with plain[2]=0, plain[3]=0 regardless of physical state.
+            # Power state is therefore NOT extracted from keepalive echoes
+            # (_parse_heartbeat returns an empty StateUpdate); the fields below
+            # will always be None and these checks are no-ops.  They remain for
+            # safety in case a future firmware revision does populate them.
+            if update.is_on and not s.is_on:
+                s.is_on = True
+                changed = True
+            if update.center_is_on and not s.center.is_on:
+                s.center.is_on = True
+                changed = True
+            if update.ring_is_on and not s.ring.is_on:
+                s.ring.is_on = True
+                changed = True
         else:
             # Command echo (0x33/0x04, 0x33/0x05, 0x33/0x50 …).
             # Power-state fields are intentionally left empty by _parse_0x33_0x01
