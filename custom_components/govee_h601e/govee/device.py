@@ -851,14 +851,19 @@ def _parse_heartbeat(plain: bytes) -> StateUpdate:
 
 
 def _parse_0x33_0x01(plain: bytes) -> StateUpdate:
-    """Extract power state from a 0x33/0x01 echo.
+    """Parse a 0x33/0x01 power-command echo.
 
-    ``plain[2]``: ``0x01`` = on, ``0x00`` = off.
+    Power state is intentionally NOT extracted here.  Some devices echo the
+    state *before* processing the command (i.e. the lamp echoes "off" in
+    response to an ON command), which would override the optimistic update set
+    at send time and produce a spurious "on → off" logbook entry.
+
+    Power state is tracked via:
+    * Optimistic updates in ``async_turn_on`` / ``async_turn_off``.
+    * The keepalive echo (0xAA/0x36) which is authoritative after the 2-second
+      command-suppression window expires.
     """
-    if len(plain) < 3:
-        return StateUpdate()
-    on = plain[2] != 0
-    return StateUpdate(is_on=on, center_is_on=on, ring_is_on=on)
+    return StateUpdate()
 
 
 def _parse_0x33_0x04(plain: bytes) -> StateUpdate:

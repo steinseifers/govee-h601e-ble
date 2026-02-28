@@ -689,35 +689,67 @@ class GoveeCoordinator:
         Only non-``None`` fields in *update* are written.  Notifies registered
         listeners if any field actually changed.
 
-        ``from_heartbeat`` suppresses stale "off" power-state values that arrive
-        in a keepalive echo shortly after a command was sent.  The echo reflects
-        the device state *before* the command was processed, which would
-        incorrectly override the optimistic update we set on send.  Command
-        echoes (0x33/0x01 etc.) are always applied unconditionally.
+        ``from_heartbeat`` controls how power-state fields are applied:
+
+        * Within 2 s of a control command being sent (``_last_cmd_sent_at``):
+          the heartbeat echo may still reflect the pre-command device state,
+          so "off" values are suppressed and only ON is allowed.  This protects
+          the optimistic update set at send time.
+
+        * After that 2-second window (and on initial connect, where
+          ``_last_cmd_sent_at`` is 0.0 so the gap is enormous): the heartbeat
+          is treated as authoritative and both ON and OFF are applied.  This
+          is what makes the state-sync after (re)connect pick up the real
+          physical power state even when the lamp is off.
+
+        Command echoes (``from_heartbeat=False``) do not carry power state –
+        ``_parse_0x33_0x01`` returns an empty ``StateUpdate`` so that stale
+        device echoes cannot override the optimistic update.
         """
         changed = False
         s = self.state
 
-        # Suppress stale "off" from heartbeat if a command was sent recently.
-        _CMD_HOLD_SECS = 2.0
-        suppress_off = from_heartbeat and (monotonic() - self._last_cmd_sent_at) < _CMD_HOLD_SECS
+        if from_heartbeat:
+            # Guard: only suppress "off" while a recently-sent command might
+            # still be in-flight.  _last_cmd_sent_at is 0.0 at startup, so
+            # the very first keepalive echo after connect is always authoritative.
+            recent_cmd = (monotonic() - self._last_cmd_sent_at) < 2.0
 
-        if update.is_on is not None:
-            new_val = update.is_on if (update.is_on or not suppress_off) else s.is_on
-            if s.is_on != new_val:
-                s.is_on = new_val
+            if recent_cmd:
+                # Protect optimistic "on" state – allow ON but not OFF.
+                if update.is_on and not s.is_on:
+                    s.is_on = True
+                    changed = True
+                if update.center_is_on and not s.center.is_on:
+                    s.center.is_on = True
+                    changed = True
+                if update.ring_is_on and not s.ring.is_on:
+                    s.ring.is_on = True
+                    changed = True
+            else:
+                # No recent command – heartbeat is authoritative for power state.
+                if update.is_on is not None and s.is_on != update.is_on:
+                    s.is_on = update.is_on
+                    changed = True
+                if update.center_is_on is not None and s.center.is_on != update.center_is_on:
+                    s.center.is_on = update.center_is_on
+                    changed = True
+                if update.ring_is_on is not None and s.ring.is_on != update.ring_is_on:
+                    s.ring.is_on = update.ring_is_on
+                    changed = True
+        else:
+            # Command echo (0x33/0x04, 0x33/0x05, 0x33/0x50 …).
+            # Power-state fields are intentionally left empty by _parse_0x33_0x01
+            # so these checks are no-ops for power commands; they remain here for
+            # any future parser that does fill them in authoritatively.
+            if update.is_on is not None and s.is_on != update.is_on:
+                s.is_on = update.is_on
                 changed = True
-
-        if update.center_is_on is not None:
-            new_val = update.center_is_on if (update.center_is_on or not suppress_off) else s.center.is_on
-            if s.center.is_on != new_val:
-                s.center.is_on = new_val
+            if update.center_is_on is not None and s.center.is_on != update.center_is_on:
+                s.center.is_on = update.center_is_on
                 changed = True
-
-        if update.ring_is_on is not None:
-            new_val = update.ring_is_on if (update.ring_is_on or not suppress_off) else s.ring.is_on
-            if s.ring.is_on != new_val:
-                s.ring.is_on = new_val
+            if update.ring_is_on is not None and s.ring.is_on != update.ring_is_on:
+                s.ring.is_on = update.ring_is_on
                 changed = True
 
         if update.brightness_pct is not None and s.brightness_pct != update.brightness_pct:
