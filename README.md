@@ -13,8 +13,20 @@ from the official Govee Android APK.
 |--------|-------------|
 | `light.<name>` | Master on/off for the entire lamp |
 | `light.<name>_center` | Centre panel – brightness, colour temperature (2 200–6 500 K), RGB |
-| `light.<name>_ring` | Outer RGB ring – brightness, RGB (via H601E DIY protocol) |
+| `light.<name>_ring` | Outer RGB ring – brightness, RGB, animated effects (Solid / Breathe / Strobe / Chase / Gradient) |
 | `switch.<name>_persistent_connection` | Toggle between persistent and on-demand BLE mode |
+
+### Ring light effects
+
+The outer ring exposes five effects via HA's standard effect picker:
+
+| Effect | Description |
+|--------|-------------|
+| **Solid** | Static colour (default) |
+| **Breathe** | Slow pulse / fade in–out |
+| **Strobe** | Fast flash |
+| **Chase** | Streamer running around the ring |
+| **Gradient** | Smooth two-colour gradient (complementary hue auto-computed) |
 
 ### Connection modes
 
@@ -136,16 +148,6 @@ routes `STATE_UPDATE` frames through `_apply_state_update`, so wiring in
 unsolicited pushes requires only extending `_parse_heartbeat` / adding new
 parser helpers in `govee/device.py`.
 
-### Ring light effects
-
-The outer ring's DIY protocol (`cmdType = 0x50`, `KmpH601EFDiyParse`) supports
-more than solid colour.  Known `subEffectType` values observed in the APK
-include gradient, pulse and rainbow modes.  These could be exposed as HA
-[light effects](https://developers.home-assistant.io/docs/core/entity/light/#light-effects)
-on `GoveeRingLight`.
-
-Prerequisite: Capture and decode the effect frames for each mode.
-
 ---
 
 ## Development
@@ -167,7 +169,7 @@ custom_components/govee_h601e/
 │   └── en.json          – English translations (mirrors strings.json)
 └── govee/
     ├── __init__.py      – Package marker
-    ├── device.py        – Protocol layer (crypto, frames, state model)
+    ├── device.py        – Protocol layer (crypto, frames, state model, notification parsing)
     └── scanner.py       – BLE advertisement detection helpers
 ```
 
@@ -198,6 +200,8 @@ Protocol analysis based on reverse engineering of the Govee Home Android APK
 - `com.govee.encryp.ble.Controller4Aes` – Handshake frame builders
 - `com.govee.encryp.ble.EncryptionManager` – V1 session protocol
 - `com.govee.shared.protocol.h601e.KmpH601EFDiyParse` – Ring DIY protocol
+- `com.govee.shared.protocol.h601e.subEffect.KmpSubEffect*` – Ring effect builders (Breathe, Strobe, Chase, Gradient)
+- `com.govee.h604a.ble.controller.ComposeLightHeartController` – Heartbeat response format (per-zone power states)
 - `com.govee.base2home.Constant.Y1` – Kelvin→RGB lookup table
 
 ---
