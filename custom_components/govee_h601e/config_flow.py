@@ -234,7 +234,7 @@ class GoveeH601EConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             )
         else:
-            address_field = vol.All(str, vol.Length(min=17), _validate_address)
+            address_field = str
 
         schema = vol.Schema(
             {
