@@ -350,9 +350,9 @@ class GoveeCenterLight(_GoveeBaseLight):
 class GoveeRingLight(_GoveeBaseLight):
     """Light entity for the Govee H601E outer RGB ring.
 
-    The ring is controlled via the H601E DIY protocol (cmdType=0x50) and
-    supports only RGB colour.  Colour temperature is not available for the
-    ring segment.
+    The ring is controlled via the SubModeColor bitmask ``3F 00 00`` (bits 0–5,
+    cmdType=0x05) and supports only RGB colour.  Colour temperature is not
+    available for the ring.
 
     Brightness is physically shared with the centre panel; setting it here
     updates the global brightness register and affects both zones.
@@ -431,7 +431,7 @@ class GoveeRingLight(_GoveeBaseLight):
             await self._coordinator.async_set_ring_effect(effect, r, g, b)
         else:
             # Always send a ring colour command – the ring has no simple on/off
-            # and needs an explicit 0x50 DIY frame to activate / confirm its colour.
+            # and needs an explicit colour frame to activate / confirm its colour.
             r, g, b = rgb if rgb is not None else (self._coordinator.state.ring.rgb or (255, 255, 255))
             await self._coordinator.async_set_ring_rgb(r, g, b)
 

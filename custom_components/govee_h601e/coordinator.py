@@ -79,13 +79,13 @@ from .govee.device import (
     NotificationType,
     StateUpdate,
     cmd_brightness,
-    cmd_color_rgb_panel,
+    cmd_color_rgb_center,
+    cmd_color_rgb_ring,
     cmd_color_temp,
     cmd_keepalive,
     cmd_power,
     cmd_ring_breathe,
     cmd_ring_chase,
-    cmd_ring_diy,
     cmd_ring_gradient,
     cmd_ring_strobe,
     encrypt_command,
@@ -287,7 +287,7 @@ class GoveeCoordinator:
         Args:
             r, g, b: Red, green, blue components (0–255).
         """
-        if await self._send_command(cmd_color_rgb_panel(r, g, b), label="COLOR_PANEL"):
+        if await self._send_command(cmd_color_rgb_center(r, g, b), label="COLOR_PANEL"):
             self.state.is_on = True
             self.state.center.is_on = True
             self.state.center.color_mode = LightColorMode.RGB
@@ -295,12 +295,14 @@ class GoveeCoordinator:
             self._notify_listeners()
 
     async def async_set_ring_rgb(self, r: int, g: int, b: int) -> None:
-        """Set outer-ring RGB colour via the H601E DIY protocol (solid colour).
+        """Set outer-ring RGB colour via the SubModeColor bitmask protocol (solid colour).
+
+        Uses bitmask ``3F 00 00`` (bits 0–5, outer ring segments only).
 
         Args:
             r, g, b: Red, green, blue components (0–255).
         """
-        if await self._send_command(cmd_ring_diy(r, g, b), label="COLOR_RING"):
+        if await self._send_command(cmd_color_rgb_ring(r, g, b), label="COLOR_RING"):
             self.state.is_on = True
             self.state.ring.is_on = True
             self.state.ring.color_mode = LightColorMode.RGB
@@ -324,7 +326,7 @@ class GoveeCoordinator:
         elif effect == RING_EFFECT_GRADIENT:
             frame = cmd_ring_gradient(r, g, b)
         else:  # SOLID or unrecognised → plain solid colour
-            frame = cmd_ring_diy(r, g, b)
+            frame = cmd_color_rgb_ring(r, g, b)
             effect = RING_EFFECT_SOLID
 
         if await self._send_command(frame, label=f"RING_EFFECT_{effect.upper()}"):

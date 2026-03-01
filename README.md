@@ -13,7 +13,7 @@ from the official Govee Android APK.
 |--------|-------------|
 | `light.<name>` | Master on/off for the entire lamp |
 | `light.<name>_center` | Centre panel – brightness, colour temperature (2 200–6 500 K), RGB |
-| `light.<name>_ring` | Outer RGB ring – brightness, RGB, animated effects (Solid / Breathe / Strobe / Chase / Gradient) |
+| `light.<name>_ring` | Outer RGB ring – brightness, RGB colour (via SubModeColor bitmask, verified 2026-03-01), animated effects |
 | `switch.<name>_persistent_connection` | Toggle between persistent and on-demand BLE mode |
 
 ### Ring light effects
@@ -123,8 +123,12 @@ dependencies, so it can be tested and reused independently.
   presses are not yet reflected in HA because the unsolicited state-push
   notification format is not yet fully documented.
 - **Ring colour temperature** – The outer ring only supports RGB colour via
-  the DIY protocol (`cmdType = 0x50`).  Colour temperature on the ring is
-  not available.
+  the ``SubModeColor`` bitmask (``cmdType = 0x05``, bitmask ``3F 00 00``).
+  Colour temperature on the ring is not available.
+- **Ring animated effects** – Effects (Breathe / Strobe / Chase / Gradient)
+  use the DIY protocol (``cmdType = 0x50``).  On tested H601E units these
+  commands are acknowledged but produce no physical change; the effect UI is
+  retained for compatibility with other firmware variants.
 - **Brightness granularity** – Govee uses 0–100 %; HA uses 0–255.  Rounding
   means not all 256 HA values map to unique Govee values.
 - **macOS / CoreBluetooth** – On macOS the BLE address is a UUID assigned by
@@ -200,7 +204,9 @@ Protocol analysis based on reverse engineering of the Govee Home Android APK
 - `com.govee.encryp.ble.Controller4Aes` – Handshake frame builders
 - `com.govee.encryp.ble.EncryptionManager` – V1 session protocol
 - `com.govee.shared.protocol.h601e.KmpH601EFDiyParse` – Ring DIY protocol
+  (cmdType=0x50; acknowledged by H601E but produces no physical change on tested units)
 - `com.govee.shared.protocol.h601e.subEffect.KmpSubEffect*` – Ring effect builders (Breathe, Strobe, Chase, Gradient)
+- `SubModeColor.getWriteBytes` – Segment bitmask protocol (cmdType=0x05): bitmask ``3F 00 00`` = ring, ``C0 3F 00`` = centre, ``FF 3F 00`` = both (empirically verified on H601E 2026-03-01)
 - `com.govee.h604a.ble.controller.ComposeLightHeartController` – Heartbeat response format (per-zone power states)
 - `com.govee.base2home.Constant.Y1` – Kelvin→RGB lookup table
 

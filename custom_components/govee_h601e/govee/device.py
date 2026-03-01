@@ -89,15 +89,21 @@ KELVIN_RGB: dict[int, tuple[int, int, int]] = {
 # bArr[10]: segments  0- 7  (LSB = segment 0)
 # bArr[11]: segments  8-15
 # bArr[12]: segments 16-23
-# Panel = segments 0-13 (centre diffuser)
-# Ring  = segments 14-23 (outer RGB ring) – NOT controlled via this bitmask;
-#         the ring uses a separate DIY protocol (cmdType=0x50, see cmd_ring_diy).
+#
+# Empirically verified on H601E (2026-03-01):
+#   Bits  0- 5  (M0=0x3F, M1=0x00): outer ring   (6 segments)
+#   Bits  6-13  (M0=0xC0, M1=0x3F): centre panel  (8 segments)
+#   Bits  0-13  (M0=0xFF, M1=0x3F): ring + centre (14 segments)
+#   M0 = 0x00 → command silently ignored by firmware
 
-_BITMASK_ALL: tuple[int, int, int] = (0xFF, 0xFF, 0xFF)
-"""All 24 segments (centre + ring area), but ring colour actually needs 0x50."""
+_BITMASK_RING: tuple[int, int, int] = (0x3F, 0x00, 0x00)
+"""Outer ring only – bits 0–5 (6 segments).  Verified on H601E 2026-03-01."""
 
-_BITMASK_PANEL: tuple[int, int, int] = (0xFF, 0x3F, 0x00)
-"""Only the 14 centre-panel segments (0–13)."""
+_BITMASK_CENTER: tuple[int, int, int] = (0xC0, 0x3F, 0x00)
+"""Centre panel only – bits 6–13 (8 segments).  Verified on H601E 2026-03-01."""
+
+_BITMASK_ALL: tuple[int, int, int] = (0xFF, 0x3F, 0x00)
+"""Ring + centre together – bits 0–13.  Verified on H601E 2026-03-01."""
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -188,7 +194,8 @@ class StateUpdate:
 
     # ── Ring ──────────────────────────────────────────────────────────────────
     ring_present: bool = False
-    """``True`` when this notification carries ring state (0x33/0x50 echo)."""
+    """``True`` when this notification carries ring state (0x33/0x50 echo or
+    ring-zone 0x33/0x05 echo with bitmask ``3F 00 00``)."""
 
     ring_rgb: tuple[int, int, int] | None = None
     ring_effect: str | None = None
@@ -440,11 +447,9 @@ def cmd_brightness(value: int) -> bytes:
 
 
 def cmd_color_rgb(r: int, g: int, b: int) -> bytes:
-    """Build an RGB colour frame targeting all 24 segments (panel + ring area).
+    """Build an RGB colour frame targeting both ring and centre (all visible segments).
 
-    Uses the ``SubModeColor`` bitmask ``FF FF FF``.  Note that the outer ring
-    requires a separate command (:func:`cmd_ring_diy`); sending only this frame
-    does not change the ring colour on the H601E.
+    Uses the ``SubModeColor`` bitmask ``FF 3F 00`` (bits 0–13, ring + centre).
 
     Args:
         r: Red component   (0–255).
@@ -457,10 +462,11 @@ def cmd_color_rgb(r: int, g: int, b: int) -> bytes:
     return _make_color_frame(r, g, b, _BITMASK_ALL)
 
 
-def cmd_color_rgb_panel(r: int, g: int, b: int) -> bytes:
-    """Build an RGB colour frame targeting only the centre panel (segments 0–13).
+def cmd_color_rgb_center(r: int, g: int, b: int) -> bytes:
+    """Build an RGB colour frame targeting only the centre panel (segments 6–13).
 
-    Uses the ``SubModeColor`` bitmask ``FF 3F 00``.
+    Uses the ``SubModeColor`` bitmask ``C0 3F 00`` (bits 6–13).
+    Verified on H601E 2026-03-01.
 
     Args:
         r: Red component   (0–255).
@@ -470,7 +476,24 @@ def cmd_color_rgb_panel(r: int, g: int, b: int) -> bytes:
     Returns:
         20-byte plaintext frame.
     """
-    return _make_color_frame(r, g, b, _BITMASK_PANEL)
+    return _make_color_frame(r, g, b, _BITMASK_CENTER)
+
+
+def cmd_color_rgb_ring(r: int, g: int, b: int) -> bytes:
+    """Build an RGB colour frame targeting only the outer ring (segments 0–5).
+
+    Uses the ``SubModeColor`` bitmask ``3F 00 00`` (bits 0–5).
+    Verified on H601E 2026-03-01 as the correct protocol for ring colour control.
+
+    Args:
+        r: Red component   (0–255).
+        g: Green component (0–255).
+        b: Blue component  (0–255).
+
+    Returns:
+        20-byte plaintext frame.
+    """
+    return _make_color_frame(r, g, b, _BITMASK_RING)
 
 
 def cmd_color_temp(kelvin: int) -> bytes:
@@ -882,13 +905,22 @@ def _parse_0x33_0x05(plain: bytes) -> StateUpdate:
     Payload layout (bytes[2..] of ``plain``):
       ``[0x15, 0x01, R, G, B, KH, KL, KR, KG, KB, M0, M1, M2, 0, 0, 0, 0]``
 
-    Colour-temperature mode: ``KH != 0 or KL != 0``
+    The segment bitmask (M0 at plain[12], M1 at plain[13]) determines the zone:
+      - ``M0 & 0xC0`` or ``M1 & 0x3F`` → centre panel included
+      - ``M0 & 0x3F`` set, centre bits clear → ring only (bitmask 0x3F, 0x00)
+
+    Colour-temperature mode: ``KH != 0 or KL != 0`` (centre only)
     RGB mode: ``KH == 0 and KL == 0``
     """
-    if len(plain) < 12:
+    if len(plain) < 15:
         return StateUpdate()
     r, g, b = plain[4], plain[5], plain[6]
     kh, kl  = plain[7], plain[8]
+    m0, m1  = plain[12], plain[13]
+    center_included = bool(m0 & 0xC0) or bool(m1 & 0x3F)
+    ring_only = not center_included and bool(m0 & 0x3F)
+    if ring_only:
+        return StateUpdate(ring_present=True, ring_rgb=(r, g, b))
     if kh != 0 or kl != 0:
         return StateUpdate(
             center_color_mode=LightColorMode.COLOR_TEMP,
